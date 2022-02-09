@@ -6,7 +6,7 @@ function buildHTML(entry) {
 </html>
 `;
 }
-const pluginName = "vite-plugin-virtual-entry";
+const pluginName = "vite-plugin-multi-virtual-html";
 const fs = require("fs");
 function readHtml(filename) {
 	if (!fs.existsSync(filename)) return null;
@@ -20,31 +20,46 @@ function generateVirtualId(name) {
 function unwrapVirtualId(id) {
 	return id.replace(PREFIX, "");
 }
-
-const pwd = process.cwd();
-function formatEntry(entry) {
-	if (Array.isArray(entry)) {
-		entry = entry
-			.map((entry) => {
-				if (typeof entry == "string") return { name: entry, entry };
-				return formatEntry(entry);
-			})
-			.flat();
-	} else if (typeof entry == "string") {
-		entry = [{ name: "main", entry: entry }];
-	} else {
-		entry = Object.entries(entry).map(([name, entry]) => ({ name, entry }));
-	}
-	return entry;
+function getEntryName(name, root) {
+	return name
+		.replace(root, "")
+		.replace(/^((\.)?\/)/, "")
+		.replace(/\.(html|js|ts|jsx|tsx)$/, "")
+		.replace(/(\/)$/, "");
 }
-function virtualReducer(root) {
-	return function (acc, { name, entry }) {
-		name = name
-			.replace(pwd, "")
-			.replace(/\.*$/, "")
-			.replace(/(main|index)$/i, "")
-			.replace(/(\/)$/, "")
-			.replace(/^(\/)/, "");
+
+function getInputs(virtual) {
+	return Array.from(virtual.values()).reduce(function inputReducer(
+		acc,
+		{ name, virtualId }
+	) {
+		acc[name] = virtualId;
+		return acc;
+	},
+	{});
+}
+
+function getEntries(entry, root) {
+	function formatEntry(entry) {
+		if (Array.isArray(entry)) {
+			entry = entry
+				.map((entry) => {
+					if (typeof entry == "string") return { name: entry, entry };
+					return formatEntry(entry);
+				})
+				.flat();
+		} else if (typeof entry == "string") {
+			entry = [{ name: entry, entry: entry }];
+		} else {
+			entry = Object.entries(entry).map(([name, entry]) => ({ name, entry }));
+		}
+		return entry;
+	}
+
+	return formatEntry(entry).reduce(function (acc, { name, entry }) {
+		entry = entry.replace(/^(\.)/, "");
+		name = getEntryName(name, root);
+		if (name == "index") name = getEntryName(entry, root);
 		const virtualId = generateVirtualId(name);
 		acc.set(virtualId, {
 			entry,
@@ -54,11 +69,7 @@ function virtualReducer(root) {
 			root,
 		});
 		return acc;
-	};
-}
-function inputReducer(acc, { name, virtualId }) {
-	acc[name] = virtualId;
-	return acc;
+	}, new Map());
 }
 
 const htmlRE = /^(\<(html|!doctype))/i;
@@ -93,13 +104,9 @@ function createPlugin(options) {
 		}
 	}
 	function configResolved(config) {
-		virtual = formatEntry(options.entry).reduce(
-			virtualReducer(config.root),
-			virtual
-		);
+		virtual = getEntries(options.entry, config.root);
 		if (config.command == "build") {
-			const input = Array.from(virtual.values());
-			config.build.rollupOptions.input = input.reduce(inputReducer, {});
+			config.build.rollupOptions.input = getInputs(virtual);
 			config.plugins = config.plugins.map((plugin) => {
 				if (plugin.name !== "vite:build-html") return plugin;
 				const originalTransform = plugin.transform;
@@ -131,9 +138,14 @@ function createPlugin(options) {
 		}
 	}
 	function configureServer(server) {
-		const routes = Array.from(virtual.keys())
-			.map(unwrapVirtualId)
-			.map((entry) => `<a href='${entry}' >${entry}</a>`);
+		const routes = (origin) =>
+			Array.from(virtual.keys())
+				.map(unwrapVirtualId)
+				.map(
+					(entry) =>
+						`<li> <a href='${origin}${entry}'>${origin}${entry}</a></li>`
+				)
+				.join("");
 		server.middlewares.use(async (req, res, next) => {
 			if (res.writableEnded) return next();
 			const accept = req.headers["accept"];
@@ -141,10 +153,19 @@ function createPlugin(options) {
 			if (!accept || !accept.startsWith("text/html")) return next();
 			//  we don't care about the `?xxx=xxx`
 			const [url] = req.originalUrl.split("?");
-			const found = virtual.get(generateVirtualId(url));
-			// `/` or `/index.html` or not found
-			if (url == "/" || url == "/index.html" || !found)
-				return res.end(routes.join("<br/>"));
+			const found = virtual.get(generateVirtualId(url.replace(".html", "")));
+			//  not found
+			if (!found) {
+				let origin = req.headers.origin || req.headers.host;
+				if (!origin.startsWith("http://") && !origin.startsWith("https://")) {
+					origin = "http://" + origin;
+				}
+				const html = `
+				<h1>Sorry, Request path'${req.originalUrl}'not found</h1>
+				<h3>Available paths: </h3>
+				<ul>${routes(origin)}</ul>`;
+				return res.setHeader("content-type", "text/html").end(html);
+			}
 			res.end(
 				await server.transformIndexHtml(url, renderHTML(found, options.render))
 			);

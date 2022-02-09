@@ -1,9 +1,6 @@
 {
 	"name": "vite-plugin-virtual-entry",
-	"version": "0.0.1",
-	"devDependencies": {
-		"vite": "^2.7.2"
-	},
+	"version": "0.0.2",
 	"main": "./main.js",
 	"author": {
 		"name": "Fi2zz"
@@ -11,5 +8,18 @@
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/Fi2zz/vite-plugin-virtual-entry.git"
-	}
+	},
+	"license": "MIT",
+	"keywords": [
+		"vite",
+		"html",
+		"plugin",
+		"vite-plugin",
+		"vite mpa",
+		"mpa",
+		"vite multi",
+		"vite multipage",
+		"vite multi entry",
+		"vite multi html"
+	]
 }
