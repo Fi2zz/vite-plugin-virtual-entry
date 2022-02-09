@@ -1,138 +1,161 @@
-function getTemplate(injection = {}) {
-	return `
-<!DOCTYPE html>
+function buildHTML(entry) {
+	return `<!DOCTYPE html>
 <html>
-	<head>
-	<meta charset="utf-8" />
-	<title>${injection.title}</title>
-	${injection.head}
-	</head>
-	<body>${injection.body}</body>
+<head></head>
+<body><script type="module" src="${entry}"></script></body>
 </html>
 `;
 }
-function isPlainObject(v) {
-	return Object.prototype.toString.call(v) === "[object Object]";
+const pluginName = "vite-plugin-virtual-entry";
+const fs = require("fs");
+function readHtml(filename) {
+	if (!fs.existsSync(filename)) return null;
+	return fs.readFileSync(filename).toString();
+}
+const PREFIX = `\0virtual__${pluginName}__`;
+function generateVirtualId(name) {
+	name = name.startsWith("/") ? name : `/${name}`;
+	return `${PREFIX}${name}`;
+}
+function unwrapVirtualId(id) {
+	return id.replace(PREFIX, "");
 }
 
-function formatMeta(meta) {
-	return Object.entries(meta)
-		.map(([name, content]) => {
-			content = JSON.stringify(content);
-			return `<meta name="${name}" content=${content} />`;
-		})
-		.join("\n");
+const pwd = process.cwd();
+function formatEntry(entry) {
+	if (Array.isArray(entry)) {
+		entry = entry
+			.map((entry) => {
+				if (typeof entry == "string") return { name: entry, entry };
+				return formatEntry(entry);
+			})
+			.flat();
+	} else if (typeof entry == "string") {
+		entry = [{ name: "main", entry: entry }];
+	} else {
+		entry = Object.entries(entry).map(([name, entry]) => ({ name, entry }));
+	}
+	return entry;
 }
-
-function checkString(input, defaultValue = "") {
-	return input && typeof input == "string" ? input : defaultValue;
-}
-const { mergeConfig } = require("vite");
-const container = "<div id='root'> </div>";
-function injectionCreator(injections = {}) {
-	return (url, entry) => {
-		const injection = injections[url] || {};
-		injection.body = checkString(injection.body);
-		injection.head = checkString(injection.head);
-		injection.title = checkString(injection.title, "Title");
-		injection.container = checkString(injection.container, container);
-		if (isPlainObject(injection.meta)) {
-			const metaTags = formatMeta({
-				viewport: "width=device-width, initial-scale=1",
-				...injection.meta,
-			});
-			injection.head = `${metaTags}\n${injection.head}`;
-		}
-		injection.body =
-			injection.container +
-			"\n" +
-			injection.body +
-			"\n" +
-			`<script type="module" src="${entry}"></script>`;
-		return injection;
+function virtualReducer(root) {
+	return function (acc, { name, entry }) {
+		name = name
+			.replace(pwd, "")
+			.replace(/\.*$/, "")
+			.replace(/(main|index)$/i, "")
+			.replace(/(\/)$/, "")
+			.replace(/^(\/)/, "");
+		const virtualId = generateVirtualId(name);
+		acc.set(virtualId, {
+			entry,
+			htmlName: `./${name}.html`,
+			name,
+			virtualId,
+			root,
+		});
+		return acc;
 	};
 }
+function inputReducer(acc, { name, virtualId }) {
+	acc[name] = virtualId;
+	return acc;
+}
 
-/**
- *
- * @param {object}  options
- * @param {object}  options.entry ,  webpack option entry like:{[entryName]:entryFilePath }
- * @param {object}  options.injections {[entryName]:{body,head,title,meta,container}}
- * @param {boolean} options.generateHTML
- * @returns  [pluginAutoServeVirtualHTML?,pluginVirtualInput,pluginVirtualEntry,pluginGenerateHTML ]
- */
+const htmlRE = /^(\<(html|!doctype))/i;
+
 function createPlugin(options) {
-	const { entry = {}, injections, generateHTML = true } = options;
-	const createInjection = injectionCreator(injections);
-	const VIRTUAL_MODULE_PREFIX = `\0virtual:`;
-	const { virtualInput, importEntry, serveMap, templates } = Object.entries(
-		entry
-	).reduce(
-		(acc, [entryName, entryFile]) => {
-			const virtualId = VIRTUAL_MODULE_PREFIX + entryName;
-			acc.virtualInput[entryName] = virtualId;
-			const outputId = `/${entryName}.js`;
-			const servInjection = createInjection(entryFile);
-			const buildInjection = createInjection(outputId);
-			const servePath = `/${entryName}`;
-			acc.serveMap[servePath] = getTemplate(servInjection);
-			const entry = `import "${entryFile}";`;
-			acc.importEntry[virtualId] = entry;
-			const templateId = `${entryName}.html`;
-			acc.templates.push({
-				id: templateId,
-				template: getTemplate(buildInjection),
-			});
-			return acc;
-		},
-		{ importEntry: {}, virtualInput: {}, serveMap: {}, templates: [] }
-	);
+	var virtual = new Map();
 
-	function vitePluginServeHTML() {
-		return {
-			enforce: "pre",
-			name: "vite-plugin-serve-html",
-			apply: "serve",
-			configureServer(server) {
-				return () => {
-					server.middlewares.use(async (req, res, next) => {
-						const accept = req.headers["accept"];
-						if (accept === "*/*") return next();
-						if (!accept || !accept.startsWith("text/html")) return next();
-						const [url, _querystring] = req.originalUrl.split("?");
-						const tpl = await server.transformIndexHtml(url, serveMap[url]);
-						res.end(tpl);
-					});
+	function load(id) {
+		if (!virtual.has(id)) return null;
+		const found = virtual.get(id);
+		return `import "${found.entry}";`;
+	}
+	function resolveId(id) {
+		return virtual.has(id) ? id : null;
+	}
+	function renderHTML({ name, entry, root }, render) {
+		if (entry.endsWith(".html")) {
+			return readHtml(entry);
+		} else {
+			let html = buildHTML(entry.replace(root, ""));
+			if (typeof render == "function") {
+				const result = render({ html, name, entry });
+				if (htmlRE.test(result)) return result;
+				console.log(
+					`[${pluginName}]`,
+					"Seems `options.render` returns non-html string, fallback to built-in html,got:"
+				);
+				console.log(`[${pluginName}]`, JSON.stringify(result));
+				console.log();
+			}
+			return html;
+		}
+	}
+	function configResolved(config) {
+		virtual = formatEntry(options.entry).reduce(
+			virtualReducer(config.root),
+			virtual
+		);
+		if (config.command == "build") {
+			const input = Array.from(virtual.values());
+			config.build.rollupOptions.input = input.reduce(inputReducer, {});
+			config.plugins = config.plugins.map((plugin) => {
+				if (plugin.name !== "vite:build-html") return plugin;
+				const originalTransform = plugin.transform;
+				const originalGenerateBundle = plugin.generateBundle;
+				plugin.transform = function (code, id) {
+					if (virtual.has(id)) {
+						const found = virtual.get(id);
+						//  vite:build-html only accept id ends with '.html'
+						id = found.htmlName;
+						code = renderHTML(found, options.render);
+					}
+					return originalTransform.call(this, code, id);
 				};
-			},
-		};
+				plugin.generateBundle = function (options, bundle) {
+					for (const key in bundle) {
+						const chunk = bundle[key];
+						if (!chunk.facadeModuleId) continue;
+						// chunk.facadeModuleId ends with '.html'
+						if (virtual.has(chunk.facadeModuleId)) {
+							const { htmlName } = virtual.get(chunk.facadeModuleId);
+							chunk.facadeModuleId = htmlName;
+							bundle[key] = chunk;
+						}
+					}
+					originalGenerateBundle.call(this, options, bundle);
+				};
+				return plugin;
+			});
+		}
 	}
-	function vitePluginVirtualHTMLTemplate() {
-		return {
-			apply: "build",
-			name: "vite-plugin-virtual-html-template",
-			config: (config) =>
-				mergeConfig(config, {
-					build: {
-						rollupOptions: {
-							input: virtualInput,
-						},
-					},
-				}),
-			resolveId: (id) => (importEntry[id] ? id : null),
-			load: (id) => importEntry[id] || null,
-			generateBundle() {
-				if (!generateHTML) return;
-				templates.forEach(({ id, template }) => {
-					this.emitFile({
-						type: "asset",
-						fileName: id,
-						source: template,
-					});
-				});
-			},
-		};
+	function configureServer(server) {
+		const routes = Array.from(virtual.keys())
+			.map(unwrapVirtualId)
+			.map((entry) => `<a href='${entry}' >${entry}</a>`);
+		server.middlewares.use(async (req, res, next) => {
+			if (res.writableEnded) return next();
+			const accept = req.headers["accept"];
+			if (accept === "*/*") return next();
+			if (!accept || !accept.startsWith("text/html")) return next();
+			//  we don't care about the `?xxx=xxx`
+			const [url] = req.originalUrl.split("?");
+			const found = virtual.get(generateVirtualId(url));
+			// `/` or `/index.html` or not found
+			if (url == "/" || url == "/index.html" || !found)
+				return res.end(routes.join("<br/>"));
+			res.end(
+				await server.transformIndexHtml(url, renderHTML(found, options.render))
+			);
+		});
 	}
-	return [vitePluginServeHTML(), vitePluginVirtualHTMLTemplate()];
+	return {
+		name: pluginName,
+		load,
+		resolveId,
+		configResolved,
+		configureServer,
+	};
 }
 module.exports = createPlugin;
