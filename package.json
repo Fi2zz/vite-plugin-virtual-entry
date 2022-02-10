@@ -2,6 +2,7 @@
 	"name": "vite-plugin-virtual-entry",
 	"version": "0.0.3",
 	"main": "./dist/index.js",
+	"module": "./dist/index.js",
 	"author": {
 		"name": "Fi2zz"
 	},
