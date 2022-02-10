@@ -1,6 +1,6 @@
 {
 	"name": "vite-plugin-virtual-entry",
-	"version": "0.0.3",
+	"version": "0.1.1",
 	"main": "./dist/index.js",
 	"module": "./dist/index.js",
 	"author": {
@@ -30,5 +30,10 @@
 	"devDependencies": {
 		"@types/node": "^17.0.16",
 		"vite": "^2.8.0"
-	}
+	},
+	"files": [
+		"dist/index.js",
+		"dist/index.d.ts",
+		"index.ts"
+	]
 }

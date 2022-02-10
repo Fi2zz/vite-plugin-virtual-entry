@@ -184,7 +184,7 @@ function createPlugin(options: UserOption): Plugin {
 				) {
 					for (const key in bundle) {
 						const chunk = bundle[key] as unknown as OutputChunk;
-						if (!chunk || chunk.facadeModuleId) continue;
+						if (!chunk || !chunk.facadeModuleId) continue;
 						const facadeModuleId = chunk.facadeModuleId! as string;
 						// chunk.facadeModuleId ends with '.html'
 						if (virtual.has(facadeModuleId)) {
