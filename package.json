@@ -1,7 +1,7 @@
 {
 	"name": "vite-plugin-virtual-entry",
-	"version": "0.0.2",
-	"main": "./main.js",
+	"version": "0.0.3",
+	"main": "./dist/index.js",
 	"author": {
 		"name": "Fi2zz"
 	},
@@ -20,6 +20,14 @@
 		"vite multi",
 		"vite multipage",
 		"vite multi entry",
+		"vite entry",
+		"vite ejs",
+		"vite pug",
 		"vite multi html"
-	]
+	],
+	"types": "./dist/index.dt.ts",
+	"devDependencies": {
+		"@types/node": "^17.0.16",
+		"vite": "^2.8.0"
+	}
 }

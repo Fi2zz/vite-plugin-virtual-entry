@@ -32,16 +32,21 @@ Add it to `vite.config.js`
 
 ```ts
 // vite.config.js
-const virtualEntry = require("vite-plugin-virtual-entry");
+import virtualEntry from 'vite-plugin-virtual-entry'
+
 //  xxx.html | xxx.js(x) | xxx.ts(x)
 type EntryFile = string;
-type EntryName = EntryFile | string;
-
-type Entry =
-	| EntryFile
-	| {
-			[k: EntryName]: EntryFile;
-	  };
+type BaseEntry = EntryFile	| {[EntryName: string]: EntryFile;};
+type Entry = BaseEntry | BaseEntry[];
+type RenderOption = {
+	html: string;
+	name: string;
+	entry: string;
+};
+type UserOption = {
+	entry: Entry;
+	render: (option: RenderOption) => RenderOption["html"];
+};
 
 //  Case Entry As Object
 const entryAsObject: Entry = {
@@ -60,7 +65,6 @@ const entryAsObject: Entry = {
 const entryAsObjectArray: Entry[] = [entryAsObject];
 
 //  Case Entry As String
-
 //  http://localhost:3000/src/login/login
 //  http://localhost:3000/src/login/login.html
 const entryAsString = "/src/login/login.js";
@@ -69,23 +73,25 @@ const entryAsString = "/src/login/login.js";
 //  http://localhost:3000/src/login/login
 //  http://localhost:3000/src/login/login.html
 const entryAsStringArray = ["/src/login/login.js"];
-
-type renderOption = {
-	html: string;
-	name: string;
-	entry: string;
-};
-type Render = (option: renderOption) => renderOption["html"];
 // optional
-const render: Render = ({ html, name: entryName, entry: entryFile }) => {
-	//  you can update default html content when you needed
-	return html;
+const render: UserOption['Render'] = ({ html, name, entry }) => {
+	/*  You can replace or update HTML in your way.
+	  	alternately, by passing `entry`, you can use `ejs` to render your html and return it,eg:
+		var ejsHtml =`
+			<!DOCTYPE html>
+			<html>
+			<head></head>
+			<body><script type="module" src="<%= entry %>"></script></body>
+			</html>
+			`
+		 return ejs.render(ejsHtml, { entry:entry })
+	*/
+	return html
 };
-
 const entry =
 	entryAsObject | entryAsObjectArray | entryAsStringArray | entryAsString;
-module.exports = {
-	plugins: [virtualEntry({ entry, render })],
+export default {
+	plugins: [virtualEntry({ entry, render }:UserOption)],
 };
 ```
 
