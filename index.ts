@@ -144,7 +144,6 @@ function createPlugin(options?: UserOption): Plugin {
 	// @ts-ignore
 	if (!options) return null;
 	var virtual: VirtualMap = new Map();
-	var indexHTML = path.resolve(process.cwd(), "index.html");
 	function load(id: string) {
 		if (!virtual.has(id)) return null;
 		const found = virtual.get(id);
@@ -179,8 +178,7 @@ function createPlugin(options?: UserOption): Plugin {
 	}
 	function configResolved(config: ResolvedConfig) {
 		virtual = getEntries(config.root, options!.entry);
-		indexHTML = path.resolve(config.root, "index.html");
-
+		const indexHTML = path.resolve(config.root, "index.html");
 		if (fs.existsSync(indexHTML) && !virtual.has("index")) {
 			virtual.set("index", {
 				htmlName: "./index.html",
