@@ -1,6 +1,8 @@
 import fs from "fs";
+import * as http from "http";
 import { NormalizedOutputOptions, OutputBundle, OutputChunk } from "rollup";
 import type { Plugin, ResolvedConfig, ViteDevServer } from "vite";
+import { Connect } from "vite/types/connect";
 
 type EntryFile = /* .ts,.tsx,.js,.jsx,.html */ string;
 type BaseEntry = EntryFile | { [EntryName: string]: EntryFile };
@@ -12,8 +14,8 @@ export type RenderOption = {
 };
 export type Render = (option: RenderOption) => RenderOption["html"];
 export type UserOption = {
-	entry: Entry;
-	render: Render;
+	entry?: Entry;
+	render?: Render;
 };
 export type createPlugin = (option: UserOption) => Plugin;
 function buildHTML(entry: EntryFile) {
@@ -44,7 +46,8 @@ ${keys
 }
 
 const pluginName = "vite-plugin-multi-virtual-html";
-function readHtml(filename: string) {
+function readHtml(filename?: string) {
+	if (!filename || !filename.endsWith(".html")) return null;
 	if (!fs.existsSync(filename)) return null;
 	return fs.readFileSync(filename).toString();
 }
@@ -90,8 +93,9 @@ type FormattedEntry = {
 	entry: string;
 };
 
-function getEntries(entry: Entry, root: string) {
-	function formatEntry(entry: Entry): FormattedEntry[] {
+function getEntries(root: string, entry?: Entry) {
+	function formatEntry(entry?: Entry): FormattedEntry[] {
+		if (!entry) return [];
 		if (Array.isArray(entry)) {
 			return entry
 				.map((entry) => {
@@ -102,7 +106,7 @@ function getEntries(entry: Entry, root: string) {
 		} else if (typeof entry == "string") {
 			return [{ name: entry, entry: entry }];
 		}
-		return Object.entries(entry).map(([name, entry]) => ({ name, entry }));
+		return Object.entries(entry!).map(([name, entry]) => ({ name, entry }));
 	}
 
 	return formatEntry(entry).reduce(function (acc, { name, entry }) {
@@ -123,9 +127,24 @@ function getEntries(entry: Entry, root: string) {
 
 const htmlRE = /^(\<(html|!doctype))/i;
 
-function createPlugin(options: UserOption): Plugin {
+function handleNotFound(
+	req: Connect.IncomingMessage,
+	res: http.ServerResponse,
+	keys: string[]
+): void {
+	let origin = (req.headers.origin || req.headers.host) as string;
+	if (!origin.startsWith("http://") && !origin.startsWith("https://")) {
+		origin = "http://" + origin;
+	}
+	const html = buildNotfound(keys, req.originalUrl as string, origin);
+	res.setHeader("content-type", "text/html").end(html);
+}
+import * as path from "path";
+function createPlugin(options?: UserOption): Plugin {
+	// @ts-ignore
+	if (!options) return null;
 	var virtual: VirtualMap = new Map();
-
+	var indexHTML = path.resolve(process.cwd(), "index.html");
 	function load(id: string) {
 		if (!virtual.has(id)) return null;
 		const found = virtual.get(id);
@@ -134,7 +153,7 @@ function createPlugin(options: UserOption): Plugin {
 	function resolveId(id: string) {
 		return virtual.has(id) ? id : null;
 	}
-	function renderHTML(virtualItem: VirtualItem, render: Render) {
+	function renderHTML(virtualItem: VirtualItem, render?: Render) {
 		const { name, entry, root } = virtualItem ?? {
 			name: "",
 			entry: "",
@@ -159,8 +178,20 @@ function createPlugin(options: UserOption): Plugin {
 		return readHtml(entry);
 	}
 	function configResolved(config: ResolvedConfig) {
-		virtual = getEntries(options.entry, config.root);
+		virtual = getEntries(config.root, options!.entry);
+		indexHTML = path.resolve(config.root, "index.html");
+
+		if (fs.existsSync(indexHTML) && !virtual.has("index")) {
+			virtual.set("index", {
+				htmlName: "./index.html",
+				entry: indexHTML,
+				name: "index",
+				virtualId: wrapVirtualId("index"),
+				root: config.root,
+			});
+		}
 		if (config.command == "build") {
+			const input = getInputs(virtual);
 			config.build.rollupOptions.input = getInputs(virtual);
 			//@ts-ignore
 			config.plugins = config.plugins.map((plugin: Plugin) => {
@@ -173,7 +204,7 @@ function createPlugin(options: UserOption): Plugin {
 						const found = virtual.get(id);
 						//  vite:build-html only accept id ends with '.html'
 						id = found!.htmlName;
-						code = renderHTML(found as VirtualItem, options.render) as string;
+						code = renderHTML(found as VirtualItem, options!.render) as string;
 					}
 					return originalTransform!.call(this, code, id);
 				};
@@ -213,8 +244,6 @@ function createPlugin(options: UserOption): Plugin {
 			if (!accept || !accept.startsWith("text/html")) return next();
 			//  we don't care about the `?xxx=xxx`
 			var [url] = req.originalUrl!.split("?");
-			url = url.replace(/(\.htm|\/)$/, "");
-
 			//  for SPA history router, eg:vue-router
 			/**	vite.config.js
 			 *  virtualEntry({
@@ -236,18 +265,20 @@ function createPlugin(options: UserOption): Plugin {
 			 *  foundId('/other') => 			undefined
 			 *  foundId('/other/sub/path') => 	undefined
 			 */
-			const id = foundId(url) as string;
-			if (!id) {
-				let origin = (req.headers.origin || req.headers.host) as string;
-				if (!origin.startsWith("http://") && !origin.startsWith("https://")) {
-					origin = "http://" + origin;
-				}
-				const html = buildNotfound(keys, req.originalUrl as string, origin);
-				return res.setHeader("content-type", "text/html").end(html);
+			let html: string | undefined;
+			if (url == "/" || url == "/index.html") {
+				url = "index";
+			} else {
+				url = url.replace(/(\.htm|\/)$/, "");
 			}
-			const found = virtual.get(wrapVirtualId(id)) as VirtualItem;
-			const html = renderHTML(found, options.render) as string;
-			res.end(await server.transformIndexHtml(req.originalUrl!, html));
+			const id = foundId(url) as string;
+			if (id) {
+				const found = virtual.get(wrapVirtualId(id)) as VirtualItem;
+				html = renderHTML(found, options!.render) as string;
+			}
+			if (!html) return handleNotFound(req, res, keys);
+			html = await server.transformIndexHtml(req.originalUrl!, html!);
+			res.end(html);
 		});
 	}
 	return {

@@ -44,15 +44,15 @@ type RenderOption = {
 	entry: string;
 };
 type UserOption = {
-	entry: Entry;
-	render: (option: RenderOption) => RenderOption["html"];
+    entry?: Entry;
+    render?: Render;
+    index?: string;
 };
-
 //  Case Entry As Object
 const entryAsObject: Entry = {
-	// http://localhost:3000/index
-	// http://localhost:3000/index.html
-	index: "/src/index/index.js",
+	// http://localhost:3000/page
+	// http://localhost:3000/page.html
+	page: "/src/index/index.js",
 	// http://localhost:3000/nested/page
 	// http://localhost:3000/nested/page.html
 	"nested/page": "/src/nested/page/index.js",
@@ -95,7 +95,11 @@ export default {
 };
 ```
 
-## 404 & Index Path
+## Index (index.html)
+
+if don't have `index.html` in your project root, it will render same as `404`
+
+## 404
 
 Plugin will intercept request, if the requested path does not exist , plugin will send something like below to browser
 
