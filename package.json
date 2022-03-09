@@ -35,6 +35,5 @@
 		"dist/index.js",
 		"dist/index.d.ts",
 		"index.ts"
-	],
-	"dependencies": {}
+	]
 }

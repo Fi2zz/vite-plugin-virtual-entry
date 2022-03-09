@@ -3,7 +3,6 @@ import * as http from "http";
 import { NormalizedOutputOptions, OutputBundle, OutputChunk } from "rollup";
 import type { Plugin, ResolvedConfig, ViteDevServer } from "vite";
 import { Connect } from "vite/types/connect";
-
 type EntryFile = /* .ts,.tsx,.js,.jsx,.html */ string;
 type BaseEntry = EntryFile | { [EntryName: string]: EntryFile };
 export type Entry = BaseEntry | BaseEntry[];
