@@ -177,18 +177,18 @@ function createPlugin(options?: UserOption): Plugin {
 	}
 	function configResolved(config: ResolvedConfig) {
 		virtual = getEntries(config.root, options!.entry);
-		const indexHTML = path.resolve(config.root, "index.html");
-		if (fs.existsSync(indexHTML) && !virtual.has("index")) {
-			virtual.set("index", {
-				htmlName: "./index.html",
-				entry: indexHTML,
-				name: "index",
-				virtualId: wrapVirtualId("index"),
-				root: config.root,
-			});
-		}
-		if (config.command == "build") {
-			const input = getInputs(virtual);
+		if (config.command == "serve") {
+			const indexHTML = path.resolve(config.root, "index.html");
+			if (fs.existsSync(indexHTML) && !virtual.has("index")) {
+				virtual.set("index", {
+					htmlName: "./index.html",
+					entry: indexHTML,
+					name: "index",
+					virtualId: wrapVirtualId("index"),
+					root: config.root,
+				});
+			}
+		} else if (config.command == "build") {
 			config.build.rollupOptions.input = getInputs(virtual);
 			//@ts-ignore
 			config.plugins = config.plugins.map((plugin: Plugin) => {
